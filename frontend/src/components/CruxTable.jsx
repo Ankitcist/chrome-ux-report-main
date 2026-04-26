@@ -3,108 +3,74 @@ import {
   Alert,
   Box,
   Chip,
-  FormControl,
-  InputAdornment,
-  InputLabel,
-  MenuItem,
   Paper,
-  Select,
   Stack,
-  TextField,
   Tooltip,
   Typography
 } from "@mui/material";
 import { DataGrid } from "@mui/x-data-grid";
-
-const thresholdOperators = [
-  { value: "gt", label: "LCP >" },
-  { value: "lt", label: "LCP <" }
-];
-
-const inpThresholdOperators = [
-  { value: "gt", label: "INP >" },
-  { value: "lt", label: "INP <" }
-];
-
-const toNumberOrNull = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const formatMetric = (value, fractionDigits = 2) => {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "-";
-  }
-  return value.toFixed(fractionDigits);
-};
-
-const statusToChipColor = (status) => {
-  if (status === "success") {
-    return "success";
-  }
-  if (status === "partial_success") {
-    return "warning";
-  }
-  return "error";
-};
-
-const computeAggregate = (rows, key) => {
-  const metricValues = rows
-    .map((row) => row[key])
-    .filter((metric) => typeof metric === "number" && !Number.isNaN(metric));
-  if (!metricValues.length) {
-    return { sum: 0, average: 0 };
-  }
-  const sum = metricValues.reduce((acc, curr) => acc + curr, 0);
-  return { sum, average: sum / metricValues.length };
-};
+import MetricFilterControl from "./MetricFilterControl";
+import { metricFilterConfig } from "../constants/filters";
+import {
+  computeAggregate,
+  formatMetric,
+  statusToChipColor,
+  toNumberOrNull
+} from "../utils/metrics";
 
 function CruxTable({ rows }) {
-  const [thresholdOperator, setThresholdOperator] = useState("gt");
-  const [thresholdValue, setThresholdValue] = useState("");
-  const [inpThresholdOperator, setInpThresholdOperator] = useState("gt");
-  const [inpThresholdValue, setInpThresholdValue] = useState("");
+  const [filters, setFilters] = useState({
+    lcp: { operator: "gt", value: "" },
+    inp: { operator: "gt", value: "" },
+    cls: { operator: "gt", value: "" }
+  });
 
-  const thresholdNumber = toNumberOrNull(thresholdValue);
-  const inpThresholdNumber = toNumberOrNull(inpThresholdValue);
+  const numericThresholds = useMemo(() => {
+    return {
+      lcp: toNumberOrNull(filters.lcp.value),
+      inp: toNumberOrNull(filters.inp.value),
+      cls: toNumberOrNull(filters.cls.value)
+    };
+  }, [filters]);
+
+  const handleOperatorChange = (metricKey, operator) => {
+    setFilters((prev) => ({
+      ...prev,
+      [metricKey]: { ...prev[metricKey], operator }
+    }));
+  };
+
+  const handleThresholdChange = (metricKey, value) => {
+    setFilters((prev) => ({
+      ...prev,
+      [metricKey]: { ...prev[metricKey], value }
+    }));
+  };
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
-      if (thresholdNumber !== null) {
-        if (typeof row.lcp !== "number") {
-          return false;
-        }
-        const lcpPasses =
-          thresholdOperator === "gt"
-            ? row.lcp > thresholdNumber
-            : row.lcp < thresholdNumber;
-        if (!lcpPasses) {
-          return false;
-        }
-      }
-
-      if (inpThresholdNumber !== null) {
-        if (typeof row.inp !== "number") {
-          return false;
-        }
-        const inpPasses =
-          inpThresholdOperator === "gt"
-            ? row.inp > inpThresholdNumber
-            : row.inp < inpThresholdNumber;
-        if (!inpPasses) {
-          return false;
+      for (const config of metricFilterConfig) {
+        const metricKey = config.key;
+        const thresholdNumber = numericThresholds[metricKey];
+        if (thresholdNumber !== null) {
+          const metricValue = row[metricKey];
+          if (typeof metricValue !== "number") {
+            return false;
+          }
+          const operator = filters[metricKey].operator;
+          const metricPasses =
+            operator === "gt"
+              ? metricValue > thresholdNumber
+              : metricValue < thresholdNumber;
+          if (!metricPasses) {
+            return false;
+          }
         }
       }
 
       return true;
     });
-  }, [
-    rows,
-    thresholdNumber,
-    thresholdOperator,
-    inpThresholdNumber,
-    inpThresholdOperator
-  ]);
+  }, [rows, filters, numericThresholds]);
 
   const summary = useMemo(() => {
     return {
@@ -171,57 +137,18 @@ function CruxTable({ rows }) {
     <Stack spacing={2}>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-          <FormControl sx={{ minWidth: 130 }}>
-            <InputLabel id="lcp-op-label">Filter</InputLabel>
-            <Select
-              labelId="lcp-op-label"
-              label="Filter"
-              value={thresholdOperator}
-              onChange={(event) => setThresholdOperator(event.target.value)}
-            >
-              {thresholdOperators.map((operator) => (
-                <MenuItem key={operator.value} value={operator.value}>
-                  {operator.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <TextField
-            label="Threshold"
-            type="number"
-            value={thresholdValue}
-            onChange={(event) => setThresholdValue(event.target.value)}
-            InputProps={{
-              endAdornment: <InputAdornment position="end">ms</InputAdornment>
-            }}
-            helperText="LCP filter (empty = ignore)"
-          />
-
-          <FormControl sx={{ minWidth: 130 }}>
-            <InputLabel id="inp-op-label">Filter</InputLabel>
-            <Select
-              labelId="inp-op-label"
-              label="Filter"
-              value={inpThresholdOperator}
-              onChange={(event) => setInpThresholdOperator(event.target.value)}
-            >
-              {inpThresholdOperators.map((operator) => (
-                <MenuItem key={operator.value} value={operator.value}>
-                  {operator.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <TextField
-            label="Threshold"
-            type="number"
-            value={inpThresholdValue}
-            onChange={(event) => setInpThresholdValue(event.target.value)}
-            InputProps={{
-              endAdornment: <InputAdornment position="end">ms</InputAdornment>
-            }}
-            helperText="INP filter (empty = ignore)"
-          />
+          {metricFilterConfig.map((config) => (
+            <MetricFilterControl
+              key={config.key}
+              metricKey={config.key}
+              metricLabel={config.label}
+              unit={config.unit}
+              operator={filters[config.key].operator}
+              thresholdValue={filters[config.key].value}
+              onOperatorChange={handleOperatorChange}
+              onThresholdChange={handleThresholdChange}
+            />
+          ))}
         </Stack>
       </Paper>
 
